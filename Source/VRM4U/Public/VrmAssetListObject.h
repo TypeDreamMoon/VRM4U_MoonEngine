@@ -38,6 +38,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "InOption")
 	bool bSkipMorphTarget=false;
 
+	// Moon VRM
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "InMaterial")
+	UVrmImportMaterialSet* MoonToonSet;
+	// Moon End
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "InMaterial")
 	UVrmImportMaterialSet* MtoonLitSet;
 

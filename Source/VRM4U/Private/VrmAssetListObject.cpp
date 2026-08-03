@@ -20,6 +20,7 @@ void UVrmAssetListObject::CopyMember(UVrmAssetListObject *dst) const {
 	dst->bAssetSave = bAssetSave;
 	dst->bSkipMorphTarget = bSkipMorphTarget;
 
+	dst->MoonToonSet = MoonToonSet;	// Moon VRM
 	dst->MtoonLitSet = MtoonLitSet;
 	dst->MtoonUnlitSet = MtoonUnlitSet;
 	dst->SSSSet = SSSSet;

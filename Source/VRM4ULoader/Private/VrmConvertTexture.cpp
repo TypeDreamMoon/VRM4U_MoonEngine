@@ -918,6 +918,12 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 					mset = vrmAssetList->CustomSet;
 					bMToon = false;
 					break;
+				// Moon VRM
+				case EVRMImportMaterialType::VRMIMT_MoonToon:
+					mset = vrmAssetList->MoonToonSet;
+					bMToon = true;	// MTOON TRUE!
+					break;
+				// Moon End
 				case EVRMImportMaterialType::VRMIMT_Auto:
 				default:
 					break;

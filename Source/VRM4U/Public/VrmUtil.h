@@ -318,6 +318,7 @@ enum class EVRMImportMaterialType : uint8
 	VRMIMT_UEFNUnlit		UMETA(DisplayName = "UEFN(Unlit)"),
 	VRMIMT_UEFNSSSProfile	UMETA(DisplayName = "UEFN(SSSProfile)"),
 	VRMIMT_Custom			UMETA(DisplayName = "Custom"),
+	VRMIMT_MoonToon			UMETA(DisplayName = "MoonToon"),	// Moon VRM
 
 	VRMIMT_MAX,
 };
@@ -362,7 +363,7 @@ public:
 	int BoneWeightInfluenceNum = 8;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "VRM4U")
-	EVRMImportMaterialType MaterialType = EVRMImportMaterialType::VRMIMT_Auto;
+	EVRMImportMaterialType MaterialType = EVRMImportMaterialType::VRMIMT_MoonToon;	// Moon VRM
 
 	bool bForceOverride = false;
 

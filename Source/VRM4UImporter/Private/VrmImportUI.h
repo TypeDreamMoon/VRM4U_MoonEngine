@@ -38,7 +38,7 @@ public:
 
 	/** Materal Type */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Mesh)
-	EVRMImportMaterialType MaterialType;
+	EVRMImportMaterialType MaterialType = EVRMImportMaterialType::VRMIMT_MoonToon;	// Moon VRM
 
 #if UE_VERSION_OLDER_THAN(5,2,0)
 	static const bool VRM4U_UseUE5Mat = false;

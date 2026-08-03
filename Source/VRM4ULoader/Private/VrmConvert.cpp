@@ -686,7 +686,7 @@ bool VRMConverter::Options::IsAPoseRetarget() const {
 }
 
 
-static EVRMImportMaterialType mType = EVRMImportMaterialType::VRMIMT_Auto;
+static EVRMImportMaterialType mType = EVRMImportMaterialType::VRMIMT_MoonToon;	// Moon VRM
 void VRMConverter::Options::SetMaterialType(EVRMImportMaterialType t) {
 	mType = t;
 }
