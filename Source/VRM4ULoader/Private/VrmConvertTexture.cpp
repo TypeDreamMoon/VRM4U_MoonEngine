@@ -291,6 +291,130 @@ namespace {
 #endif
 	}
 
+	// Moon VRM
+	//
+	// Flattens one VRM material into the engine-side struct UVrmImportMaterialSet understands, so a
+	// material set can name its own parameters instead of being forced to speak `mtoon_*`.
+	bool buildMaterialSourceParams(FVrmMaterialSourceParams &out, int matIndex, UVrmAssetListObject *vrmAssetList, const VRMConverter *vc,
+		const TArray<int> &TextureTypeToIndex, const FString &matName, bool bTranslucent, bool bTwoSided, bool bOpaque
+	) {
+		VRM::VRMMaterial vrmMat;
+		if (vc->GetMatParam(vrmMat, matIndex) == false) {
+			return false;
+		}
+
+		out.MaterialName = matName;
+		out.bTranslucent = bTranslucent;
+		out.bTwoSided = bTwoSided;
+		out.bOpaque = bOpaque;
+
+		auto LocalTexture = [&](int index) -> UTexture2D* {
+			if (index < 0 || vrmAssetList->Textures.IsValidIndex(index) == false) {
+				return nullptr;
+			}
+			UTexture2D *tex = vrmAssetList->Textures[index];
+			return IsValid(tex) ? tex : nullptr;
+		};
+		auto LocalAiTexture = [&](int aiType) -> UTexture2D* {
+			return TextureTypeToIndex.IsValidIndex(aiType) ? LocalTexture(TextureTypeToIndex[aiType]) : nullptr;
+		};
+
+		{
+			struct TT {
+				EVrmMToonTextureSlot slot;
+				int value;
+			};
+			const TT tableTex[] = {
+				{EVrmMToonTextureSlot::MainTex,					vrmMat.textureProperties._MainTex},
+				{EVrmMToonTextureSlot::ShadeTexture,				vrmMat.textureProperties._ShadeTexture},
+				{EVrmMToonTextureSlot::BumpMap,					vrmMat.textureProperties._BumpMap},
+				{EVrmMToonTextureSlot::ReceiveShadowTexture,	vrmMat.textureProperties._ReceiveShadowTexture},
+				{EVrmMToonTextureSlot::ShadingGradeTexture,		vrmMat.textureProperties._ShadingGradeTexture},
+				{EVrmMToonTextureSlot::RimTexture,				vrmMat.textureProperties._RimTexture},
+				{EVrmMToonTextureSlot::SphereAdd,				vrmMat.textureProperties._SphereAdd},
+				{EVrmMToonTextureSlot::EmissionMap,				vrmMat.textureProperties._EmissionMap},
+				{EVrmMToonTextureSlot::OutlineWidthTexture,		vrmMat.textureProperties._OutlineWidthTexture},
+				{EVrmMToonTextureSlot::UvAnimMaskTexture,		vrmMat.textureProperties._UvAnimMaskTexture},
+			};
+			for (auto &t : tableTex) {
+				out.SetTexture(t.slot, LocalTexture(t.value));
+			}
+
+			// A glTF-ish source (or VRM1) may carry no MToon texture block at all; fall back to what
+			// assimp resolved off the material itself.
+			if (out.HasTexture(EVrmMToonTextureSlot::MainTex) == false) {
+				UTexture2D *tex = LocalAiTexture(aiTextureType_DIFFUSE);
+				if (tex == nullptr) {
+					tex = LocalAiTexture(aiTextureType_BASE_COLOR);
+				}
+				out.SetTexture(EVrmMToonTextureSlot::MainTex, tex);
+			}
+			if (out.HasTexture(EVrmMToonTextureSlot::BumpMap) == false) {
+				out.SetTexture(EVrmMToonTextureSlot::BumpMap, LocalAiTexture(aiTextureType_NORMALS));
+			}
+			if (out.HasTexture(EVrmMToonTextureSlot::EmissionMap) == false) {
+				out.SetTexture(EVrmMToonTextureSlot::EmissionMap, LocalAiTexture(aiTextureType_EMISSIVE));
+			}
+		}
+
+		{
+			struct TT {
+				EVrmMToonScalarSlot slot;
+				float value;
+			};
+			const TT tableScalar[] = {
+				{EVrmMToonScalarSlot::Cutoff,					vrmMat.floatProperties._Cutoff},
+				{EVrmMToonScalarSlot::BumpScale,				vrmMat.floatProperties._BumpScale},
+				{EVrmMToonScalarSlot::ReceiveShadowRate,		vrmMat.floatProperties._ReceiveShadowRate},
+				{EVrmMToonScalarSlot::ShadeShift,				vrmMat.floatProperties._ShadeShift},
+				{EVrmMToonScalarSlot::ShadeToony,				vrmMat.floatProperties._ShadeToony},
+				{EVrmMToonScalarSlot::LightColorAttenuation,	vrmMat.floatProperties._LightColorAttenuation},
+				{EVrmMToonScalarSlot::IndirectLightIntensity,	vrmMat.floatProperties._IndirectLightIntensity},
+				{EVrmMToonScalarSlot::RimLightingMix,			vrmMat.floatProperties._RimLightingMix},
+				{EVrmMToonScalarSlot::RimFresnelPower,			vrmMat.floatProperties._RimFresnelPower},
+				{EVrmMToonScalarSlot::RimLift,					vrmMat.floatProperties._RimLift},
+				{EVrmMToonScalarSlot::OutlineWidth,				vrmMat.floatProperties._OutlineWidth},
+				{EVrmMToonScalarSlot::OutlineScaledMaxDistance,	vrmMat.floatProperties._OutlineScaledMaxDistance},
+				{EVrmMToonScalarSlot::OutlineLightingMix,		vrmMat.floatProperties._OutlineLightingMix},
+				{EVrmMToonScalarSlot::UvAnimScrollX,			vrmMat.floatProperties._UvAnimScrollX},
+				{EVrmMToonScalarSlot::UvAnimScrollY,			vrmMat.floatProperties._UvAnimScrollY},
+				{EVrmMToonScalarSlot::UvAnimRotation,			vrmMat.floatProperties._UvAnimRotation},
+				{EVrmMToonScalarSlot::BlendMode,				vrmMat.floatProperties._BlendMode},
+				{EVrmMToonScalarSlot::OutlineWidthMode,			vrmMat.floatProperties._OutlineWidthMode},
+				{EVrmMToonScalarSlot::OutlineColorMode,			vrmMat.floatProperties._OutlineColorMode},
+				{EVrmMToonScalarSlot::CullMode,					vrmMat.floatProperties._CullMode},
+				{EVrmMToonScalarSlot::OutlineCullMode,			vrmMat.floatProperties._OutlineCullMode},
+				{EVrmMToonScalarSlot::ZWrite,					vrmMat.floatProperties._ZWrite},
+			};
+			for (auto &t : tableScalar) {
+				out.SetScalar(t.slot, t.value);
+			}
+			// _Color.a is MToon's opacity multiplier. Lifted out of the vector so a mapping can send
+			// it straight at a scalar parameter.
+			out.SetScalar(EVrmMToonScalarSlot::ColorAlpha, vrmMat.vectorProperties._Color[3]);
+		}
+
+		{
+			struct TT {
+				EVrmMToonVectorSlot slot;
+				const float *value;
+			};
+			const TT tableVector[] = {
+				{EVrmMToonVectorSlot::Color,			vrmMat.vectorProperties._Color},
+				{EVrmMToonVectorSlot::ShadeColor,		vrmMat.vectorProperties._ShadeColor},
+				{EVrmMToonVectorSlot::RimColor,			vrmMat.vectorProperties._RimColor},
+				{EVrmMToonVectorSlot::EmissionColor,	vrmMat.vectorProperties._EmissionColor},
+				{EVrmMToonVectorSlot::OutlineColor,		vrmMat.vectorProperties._OutlineColor},
+			};
+			for (auto &t : tableVector) {
+				out.SetVector(t.slot, FLinearColor(t.value[0], t.value[1], t.value[2], t.value[3]));
+			}
+		}
+
+		return true;
+	}
+	// Moon End
+
 	bool createAndAddMaterial(UMaterialInstanceConstant *dm, int matIndex, UVrmAssetListObject *vrmAssetList, const VRMConverter *vc,
 		const TArray<int> &TextureTypeToIndex
 	) {
@@ -678,6 +802,8 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 	TArray<bool> matFlagTwoSidedArray;
 	TArray<bool> matFlagOpaqueArray;
 	TArray<EVRMImportTextureCompressType> textureCompressTypeArray;
+	// Moon VRM: the set every material resolved through, kept for the outline pass below.
+	UVrmImportMaterialSet *usedMaterialSet = nullptr;
 
 	{
 		const VRM::VRMMetadata *meta = static_cast<const VRM::VRMMetadata*>(aiData->mVRMMeta);
@@ -763,7 +889,7 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 #endif
 
 				if (NormalBoolTable[i]) {
-					// UE5.5‚ÅƒNƒ‰ƒbƒVƒ…‚·‚é‚Ì‚Å updateŒã‚ÉÄ“xXV
+					// UE5.5ï¿½ÅƒNï¿½ï¿½ï¿½bï¿½Vï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì‚ï¿½ updateï¿½ï¿½ÉÄ“xï¿½Xï¿½V
 					NewTexture2D->CompressionSettings = TC_Normalmap;
 					NewTexture2D->UpdateResource();
 #if WITH_EDITOR
@@ -843,6 +969,12 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 			UVrmImportMaterialSet *mset = nullptr;
 
 			bool bMToon = false;
+			// Moon VRM: hoisted out of the block below so the parameter pass can still see them.
+			bool bMatTwoSided = false;
+			bool bMatTranslucent = false;
+			bool bMatOpaque = false;
+			EVrmMaterialPart matPart = EVrmMaterialPart::Default;
+			// Moon End
 			{
 				FString ShaderName = aiMat.mShaderName.C_Str();
 
@@ -932,10 +1064,15 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 					continue;
 				}
 
-
-				bool bTwoSided = false;
-				bool bTranslucent = false;
-				bool bOpaque = false;
+				// Moon VRM: aliases onto the hoisted flags, so everything below reads unchanged.
+				bool &bTwoSided = bMatTwoSided;
+				bool &bTranslucent = bMatTranslucent;
+				bool &bOpaque = bMatOpaque;
+				usedMaterialSet = mset;
+				// Classified on the raw VRM name, not the normalized asset name: rules should match
+				// what the author sees in the VRM, including names NormalizeFileName would mangle.
+				matPart = mset->ClassifyPart(UTF8_TO_TCHAR(aiMat.GetName().C_Str()));
+				// Moon End
 
 				{
 					aiString alphaMode;
@@ -995,35 +1132,18 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 
 				if (bMToon) {
 					// opaque/translucent, twoside
-					UMaterialInterface *table_param[2][2] = {
-						{
-							mset->Opaque,
-							mset->OpaqueTwoSided,
-						},
-						{
-							mset->Translucent,
-							mset->TranslucentTwoSided,
-						},
-					};
-
-					int c[2] = {
-						bTranslucent ? 1 : 0,
-						bTwoSided ? 1 : 0,
-					};
-					baseM = table_param[c[0]][c[1]];
+					// Moon VRM: per-part slots when the set opts in, the same four slots otherwise.
+					baseM = mset->ResolveMaterial(matPart, bTranslucent, bTwoSided);
 
 					if (matArray.Num() == matFlagTranslucentArray.Num()) {
-						matFlagTranslucentArray.Add(c[0] != 0);
-						matFlagTwoSidedArray.Add(c[1] != 0);
+						matFlagTranslucentArray.Add(bTranslucent);
+						matFlagTwoSidedArray.Add(bTwoSided);
 						matFlagOpaqueArray.Add(bOpaque);
 					}
 
 				}else{
 					// not mtoon
-					baseM = mset->Opaque;
-					if (bTranslucent){
-						baseM = mset->Translucent;
-					}
+					baseM = mset->ResolveMaterial(matPart, bTranslucent, false);
 				}
 			}
 
@@ -1220,6 +1340,22 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 					if (bMToon || VRMConverter::Options::Get().IsVRM10Model()) {
 						createAndAddMaterial(dm, iMat, vrmAssetList, this, TextureTypeToIndex);
 
+						// Moon VRM
+						//
+						// createAndAddMaterial only speaks `mtoon_*` / `gltf_*`. A set whose materials
+						// name their parameters differently (MoonToon: "Base Color Map", "Shadow Color")
+						// got every one of those writes silently dropped, because the editor-only
+						// setters no-op on a name the parent does not expose. Translate here instead.
+						if (mset->HasParameterMapping()) {
+							FVrmMaterialSourceParams srcParams;
+							const bool bBuilt = buildMaterialSourceParams(srcParams, iMat, vrmAssetList, this, TextureTypeToIndex,
+								UTF8_TO_TCHAR(aiMat.GetName().C_Str()), bMatTranslucent, bMatTwoSided, bMatOpaque);
+							if (bBuilt) {
+								mset->ApplyParameters(dm, srcParams, matPart, VRMConverter::IsImportMode());
+							}
+						}
+						// Moon End
+
 						if (matFlagOpaqueArray.IsValidIndex(iMat)) {
 							if (matFlagOpaqueArray[iMat]) {
 								LocalScalarParameterSet(dm, TEXT("bOpaque"), 1.f);
@@ -1336,7 +1472,17 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 
 		// ouline Material
 		if (VRMConverter::Options::Get().IsGenerateOutlineMaterial()) {
-			if (vrmAssetList->OptMToonOutlineMaterial){
+			// Moon VRM: a detailed set can name its own outline parent instead of the global one.
+			UMaterialInterface *outlineBaseM = vrmAssetList->OptMToonOutlineMaterial;
+			if (usedMaterialSet && usedMaterialSet->bUseDetailedSetup) {
+				if (const FVrmImportMaterialPartSetup *outlineSetup = usedMaterialSet->Parts.Find(EVrmMaterialPart::Outline)) {
+					if (UMaterialInterface *m = outlineSetup->Materials.Resolve(false, false)) {
+						outlineBaseM = m;
+					}
+				}
+			}
+			// Moon End
+			if (outlineBaseM){
 				for (const auto aa : vrmAssetList->Materials) {
 					const UMaterialInstanceConstant *a = Cast<UMaterialInstanceConstant>(aa);
 
@@ -1345,7 +1491,7 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 					UMaterialInstanceConstant *m = VRM4U_NewObject<UMaterialInstanceConstant>(vrmAssetList->Package, *s, EObjectFlags::RF_Public | EObjectFlags::RF_Standalone);
 
 					if (m) {
-						LocalMaterialSetParent(m, vrmAssetList->OptMToonOutlineMaterial);
+						LocalMaterialSetParent(m, outlineBaseM);
 
 						m->VectorParameterValues = a->VectorParameterValues;
 						m->ScalarParameterValues = a->ScalarParameterValues;
