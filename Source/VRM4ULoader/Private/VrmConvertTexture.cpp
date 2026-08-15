@@ -26,6 +26,9 @@
 #include "Factories.h"
 #include "Factories/TextureFactory.h"
 #include "MaterialShared.h"
+// Moon VRM: EVrmMaterialBlendKind + UVrmImportMaterialSet::PartForcesMaskedBlend are used directly
+// below, so the header has to be included rather than reached through VrmAssetListObject.h.
+#include "VrmImportMaterialSet.h"
 #endif
 
 #include <assimp/Importer.hpp>
@@ -1130,10 +1133,27 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 
 				// material set
 
+				// Moon VRM: the three glTF alpha modes are now three, not a bool. bOpaque and
+				// bTranslucent were already computed above and MASK was simply "neither", which
+				// used to collapse onto the opaque slot; name that state instead of dropping it.
+				EVrmMaterialBlendKind blendKind =
+					bTranslucent ? EVrmMaterialBlendKind::Translucent :
+					bOpaque      ? EVrmMaterialBlendKind::Opaque :
+					               EVrmMaterialBlendKind::Masked;
+
+				// Facial detail parts are cutouts whatever the VRM says. ResolveMaterial applies
+				// the same rule to the parent choice; do it here too so the flags recorded for the
+				// instance's own blend override agree with the parent it just got.
+				if (UVrmImportMaterialSet::PartForcesMaskedBlend(matPart)) {
+					blendKind = EVrmMaterialBlendKind::Masked;
+					bTranslucent = false;
+					bOpaque = false;
+				}
+
 				if (bMToon) {
-					// opaque/translucent, twoside
-					// Moon VRM: per-part slots when the set opts in, the same four slots otherwise.
-					baseM = mset->ResolveMaterial(matPart, bTranslucent, bTwoSided);
+					// opaque/masked/translucent, twoside
+					// Moon VRM: per-part slots when the set opts in, the legacy slots otherwise.
+					baseM = mset->ResolveMaterial(matPart, blendKind, bTwoSided);
 
 					if (matArray.Num() == matFlagTranslucentArray.Num()) {
 						matFlagTranslucentArray.Add(bTranslucent);
@@ -1143,7 +1163,7 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 
 				}else{
 					// not mtoon
-					baseM = mset->ResolveMaterial(matPart, bTranslucent, false);
+					baseM = mset->ResolveMaterial(matPart, blendKind, false);
 				}
 			}
 
@@ -1476,7 +1496,7 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 			UMaterialInterface *outlineBaseM = vrmAssetList->OptMToonOutlineMaterial;
 			if (usedMaterialSet && usedMaterialSet->bUseDetailedSetup) {
 				if (const FVrmImportMaterialPartSetup *outlineSetup = usedMaterialSet->Parts.Find(EVrmMaterialPart::Outline)) {
-					if (UMaterialInterface *m = outlineSetup->Materials.Resolve(false, false)) {
+					if (UMaterialInterface *m = outlineSetup->Materials.Resolve(EVrmMaterialBlendKind::Opaque, false)) {
 						outlineBaseM = m;
 					}
 				}

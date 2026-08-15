@@ -130,25 +130,31 @@ namespace {
 // ---------------------------------------------------------------------------------------------
 // FVrmImportMaterialVariant
 
-UMaterialInterface* FVrmImportMaterialVariant::Resolve(bool bTranslucent, bool bTwoSided) const {
-	// Exact slot first, then drop two-sided (the parent can still be forced two-sided), then drop
-	// translucency, so a set that only fills Opaque still produces something for every material.
-	UMaterialInterface* const Table[2][2] = {
-		{ Opaque,      OpaqueTwoSided },
+UMaterialInterface* FVrmImportMaterialVariant::Resolve(EVrmMaterialBlendKind BlendKind, bool bTwoSided) const {
+	UMaterialInterface* const Table[3][2] = {
+		{ Opaque,      OpaqueTwoSided      },
+		{ Masked,      MaskedTwoSided      },
 		{ Translucent, TranslucentTwoSided },
 	};
 
-	const int32 B = bTranslucent ? 1 : 0;
 	const int32 S = bTwoSided ? 1 : 0;
+	int32 B = FMath::Clamp((int32)BlendKind, 0, 2);
 
-	if (Table[B][S]) return Table[B][S];
-	if (Table[B][1 - S]) return Table[B][1 - S];
-	if (Table[1 - B][S]) return Table[1 - B][S];
-	return Table[1 - B][1 - S];
+	// Exact slot, then drop two-sided (the parent can still be forced two-sided at instance level),
+	// then step DOWN the blend kind. Downward only: borrowing a heavier parent would silently turn
+	// a cutout into real translucency and hand it the sorting cost this project just spent a
+	// feature avoiding.
+	for (; B >= 0; --B) {
+		if (Table[B][S]) return Table[B][S];
+		if (Table[B][1 - S]) return Table[B][1 - S];
+	}
+	return nullptr;
 }
 
 bool FVrmImportMaterialVariant::IsEmpty() const {
-	return Opaque == nullptr && OpaqueTwoSided == nullptr && Translucent == nullptr && TranslucentTwoSided == nullptr;
+	return Opaque == nullptr && OpaqueTwoSided == nullptr
+		&& Masked == nullptr && MaskedTwoSided == nullptr
+		&& Translucent == nullptr && TranslucentTwoSided == nullptr;
 }
 
 
@@ -218,21 +224,44 @@ EVrmMaterialPart UVrmImportMaterialSet::ClassifyPart(const FString& VrmMaterialN
 	return Best;
 }
 
-UMaterialInterface* UVrmImportMaterialSet::ResolveMaterial(EVrmMaterialPart Part, bool bTranslucent, bool bTwoSided) const {
-	UMaterialInterface* const LegacyTable[2][2] = {
-		{ Opaque,      OpaqueTwoSided },
-		{ Translucent, TranslucentTwoSided },
-	};
+bool UVrmImportMaterialSet::PartForcesMaskedBlend(EVrmMaterialPart Part) {
+	// The facial detail parts are cutouts, always. Authors habitually export them as BLEND because
+	// that is what MToon does in Unity, but in this renderer real translucency buys them nothing
+	// and costs plenty: they are small, they overlap each other and the face constantly (lashes
+	// over iris over sclera), so they sort badly, and their opacity was authored as a hard cutout
+	// anyway -- the alpha is a shape, not a coverage. Forcing MASK is what the art actually wants,
+	// and it keeps them out of the translucency pass entirely.
+	switch (Part) {
+	case EVrmMaterialPart::Eyebrow:
+	case EVrmMaterialPart::Eyeline:
+	case EVrmMaterialPart::Eye:
+	case EVrmMaterialPart::EyeHighlight:
+		return true;
+	default:
+		return false;
+	}
+}
+
+UMaterialInterface* UVrmImportMaterialSet::ResolveMaterial(EVrmMaterialPart Part, EVrmMaterialBlendKind BlendKind, bool bTwoSided) const {
+	if (PartForcesMaskedBlend(Part)) {
+		BlendKind = EVrmMaterialBlendKind::Masked;
+	}
 
 	if (!bUseDetailedSetup) {
 		// Exactly what the importer did before: the one slot, or nothing. A stock DS_* set with a
 		// hole in it is meant to skip that material, not silently borrow a neighbouring parent.
-		return LegacyTable[bTranslucent ? 1 : 0][bTwoSided ? 1 : 0];
+		// The legacy set has no Masked slot, so a cutout takes the opaque one, as it always did.
+		UMaterialInterface* const LegacyTable[3][2] = {
+			{ Opaque,      OpaqueTwoSided      },
+			{ Opaque,      OpaqueTwoSided      },
+			{ Translucent, TranslucentTwoSided },
+		};
+		return LegacyTable[FMath::Clamp((int32)BlendKind, 0, 2)][bTwoSided ? 1 : 0];
 	}
 
 	for (EVrmMaterialPart Current = Part;;) {
 		if (const FVrmImportMaterialPartSetup* Setup = Parts.Find(Current)) {
-			if (UMaterialInterface* Material = Setup->Materials.Resolve(bTranslucent, bTwoSided)) {
+			if (UMaterialInterface* Material = Setup->Materials.Resolve(BlendKind, bTwoSided)) {
 				return Material;
 			}
 		}
@@ -242,14 +271,14 @@ UMaterialInterface* UVrmImportMaterialSet::ResolveMaterial(EVrmMaterialPart Part
 		Current = LocalGetParentPart(Current);
 	}
 
-	// Last resort: the four legacy slots, tolerantly. A detailed set that only bothered to fill
+	// Last resort: the legacy slots, tolerantly. A detailed set that only bothered to fill
 	// Parts[Face] still needs a parent for everything else.
 	FVrmImportMaterialVariant Legacy;
 	Legacy.Opaque = Opaque;
 	Legacy.OpaqueTwoSided = OpaqueTwoSided;
 	Legacy.Translucent = Translucent;
 	Legacy.TranslucentTwoSided = TranslucentTwoSided;
-	return Legacy.Resolve(bTranslucent, bTwoSided);
+	return Legacy.Resolve(BlendKind, bTwoSided);
 }
 
 void UVrmImportMaterialSet::ApplyParameters(UMaterialInstanceConstant* Target, const FVrmMaterialSourceParams& Source, EVrmMaterialPart Part, bool bImportMode) const {

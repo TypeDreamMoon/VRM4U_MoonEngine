@@ -128,7 +128,23 @@ enum class EVrmSwitchCondition : uint8
 };
 
 
-/** The four parents one part can be built from, chosen by blend mode and culling. */
+/**
+ * How a VRM material is blended. glTF/MToon has three modes, and they are genuinely three: MASK
+ * cuts out with a threshold and stays sort-free, BLEND is real translucency and pays for sorting.
+ * They used to be squeezed into one bool, which sent MASK down the opaque slot and left the slot
+ * named "Translucent" holding a material that was actually masked-with-dither.
+ */
+UENUM(BlueprintType)
+enum class EVrmMaterialBlendKind : uint8
+{
+	Opaque			UMETA(DisplayName = "Opaque"),
+	Masked			UMETA(DisplayName = "Masked (cutout)"),
+	Translucent		UMETA(DisplayName = "Translucent (alpha blend)"),
+
+	Max				UMETA(Hidden),
+};
+
+/** The six parents one part can be built from, chosen by blend kind and culling. */
 USTRUCT(BlueprintType)
 struct VRM4U_API FVrmImportMaterialVariant
 {
@@ -141,13 +157,23 @@ struct VRM4U_API FVrmImportMaterialVariant
 	TObjectPtr<UMaterialInterface> OpaqueTwoSided;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
+	TObjectPtr<UMaterialInterface> Masked;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
+	TObjectPtr<UMaterialInterface> MaskedTwoSided;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
 	TObjectPtr<UMaterialInterface> Translucent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
 	TObjectPtr<UMaterialInterface> TranslucentTwoSided;
 
-	/** Picks the closest filled slot; falls back along two-sided then blend mode. Null if all empty. */
-	UMaterialInterface* Resolve(bool bTranslucent, bool bTwoSided) const;
+	/**
+	 * Picks the closest filled slot: exact, then drop two-sided, then walk the blend kind toward
+	 * Opaque (Translucent -> Masked -> Opaque). Never promotes to a heavier blend, so a set that
+	 * only fills Opaque still produces something for every material. Null if all empty.
+	 */
+	UMaterialInterface* Resolve(EVrmMaterialBlendKind BlendKind, bool bTwoSided) const;
 
 	bool IsEmpty() const;
 };
@@ -436,7 +462,14 @@ public:
 
 	/** Parent material for a part and blend mode, walking part -> Default -> legacy slots. */
 	UFUNCTION(BlueprintCallable, Category = "VRM4U")
-	UMaterialInterface* ResolveMaterial(EVrmMaterialPart Part, bool bTranslucent, bool bTwoSided) const;
+	UMaterialInterface* ResolveMaterial(EVrmMaterialPart Part, EVrmMaterialBlendKind BlendKind, bool bTwoSided) const;
+
+	/**
+	 * True for the facial detail parts that are always cutouts regardless of what the VRM declares
+	 * (eyebrow, eyeline, eye, eye highlight). Applied inside ResolveMaterial, so both the parent
+	 * choice and the instance's blend override agree without the caller having to remember.
+	 */
+	static bool PartForcesMaskedBlend(EVrmMaterialPart Part);
 
 	/** True when this set knows how to translate MToon values into its own parameter names. */
 	bool HasParameterMapping() const { return bUseDetailedSetup && !ParameterMapping.IsEmpty(); }
