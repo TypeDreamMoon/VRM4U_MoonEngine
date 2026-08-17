@@ -591,7 +591,10 @@ namespace {
 			// default texture
 			{
 				auto n = TextureTypeToIndex[aiTextureType_DIFFUSE];
-				if (n >= 0) {
+				// Moon VRM: the index comes from the asset ("*N" in the material's texture path), so it
+				// can point past the texture list a broken/mismatched glTF produced. Bound it like the
+				// NORMALS/EMISSIVE blocks below already do.
+				if (0 <= n && n < vrmAssetList->Textures.Num()) {
 					LocalTextureSet(dm, TEXT("mtoon_tex_MainTex"), vrmAssetList->Textures[n]);
 					LocalTextureSet(dm, TEXT("gltf_tex_diffuse"), vrmAssetList->Textures[n]);
 					LocalTextureSet(dm, TEXT("mtoon_tex_Shade"), vrmAssetList->Textures[n]);
@@ -914,6 +917,13 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 	TArray<FString> pmxTexNameList;
 	if (Options::Get().IsPMXModel()) {
 		TArray<UTexture2D*> texArray;
+		// Moon VRM: pmxTexNameList is used below as an index INTO vrmAssetList->Textures, so it has to
+		// stay aligned with texArray. Pushing the name before the load meant every unreadable file
+		// (missing .png, a path that is really a directory, a format the image wrapper rejects) shifted
+		// all later names by one -- silently mis-assigning textures, and running off the end of the
+		// array on the last one. Names now join the list only once their texture exists; the separate
+		// "tried" list keeps the original one-attempt-per-name behaviour.
+		TArray<FString> pmxTexTriedList;
 
 		int MatNum = aiData->mNumMaterials;
 		vrmAssetList->Materials.SetNum(MatNum);
@@ -932,10 +942,10 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 			baseName = TEXT("T_") + FPaths::GetBaseFilename(baseName);
 			baseName = NormalizeFileName(baseName);
 
-			if (pmxTexNameList.Find(baseName) >= 0) {
+			if (pmxTexTriedList.Find(baseName) >= 0) {
 				continue;
 			}
-			pmxTexNameList.Push(baseName);
+			pmxTexTriedList.Push(baseName);
 
 
 			TArray<uint8> RawFileData;
@@ -947,7 +957,11 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 				}
 				UTexture2D* NewTexture2D = VRMLoaderUtil::CreateTextureFromImage(baseName, pkg, RawFileData.GetData(), RawFileData.Num(), bGenerateMips);
 
-				texArray.Push(NewTexture2D);
+				// Moon VRM: CreateTextureFromImage returns null for an image it cannot decode.
+				if (NewTexture2D) {
+					texArray.Push(NewTexture2D);
+					pmxTexNameList.Push(baseName);
+				}
 			}
 		}
 		vrmAssetList->Textures = texArray;
@@ -1207,6 +1221,12 @@ bool VRMConverter::ConvertTextureAndMaterial(UVrmAssetListObject *vrmAssetList) 
 					TextureTypeToIndex[t] = atoi(s.c_str());
 
 					if (Options::Get().IsPMXModel()) {
+						// Moon VRM: a PMX path is a file name, not an embedded "*N" reference, so the
+						// atoi above is meaningless here -- it lands on texture 0 for every name the
+						// list does not hold (i.e. every texture whose file failed to load). Leave
+						// those materials without a texture instead of handing them the first one.
+						TextureTypeToIndex[t] = INDEX_NONE;
+
 						for (int i = 0; i < pmxTexNameList.Num(); ++i) {
 
 							FString baseName = FPaths::GetBaseFilename(UTF8_TO_TCHAR(path.C_Str()));
